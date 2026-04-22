@@ -1,0 +1,23 @@
+{
+  "enabled": true,
+  "task": "Fix the failing test and verify the result.",
+  "done_token": "STOPGATE_DONE",
+  "required_sections": [
+    "完成了什么",
+    "验证结果",
+    "剩余风险"
+  ],
+  "required_paths_modified": [
+    "src/"
+  ],
+  "required_paths_exist": [],
+  "commands": [
+    {
+      "label": "build",
+      "command": "pnpm build",
+      "cwd": ".",
+      "expect_exit_code": 0
+    }
+  ],
+  "max_rounds": 99
+}

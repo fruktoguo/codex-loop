@@ -1,0 +1,20 @@
+{
+  "name": "codex-loop",
+  "interface": {
+    "displayName": "Codex Loop"
+  },
+  "plugins": [
+    {
+      "name": "codex-loop",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex-loop"
+      },
+      "policy": {
+        "installation": "INSTALLED_BY_DEFAULT",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

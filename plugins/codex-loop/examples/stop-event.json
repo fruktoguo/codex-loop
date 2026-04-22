@@ -1,0 +1,6 @@
+{
+  "session_id": "example-session",
+  "cwd": "/tmp/codex-loop-example",
+  "last_assistant_message": "还没结束，只说了完成了什么。",
+  "stop_hook_active": false
+}

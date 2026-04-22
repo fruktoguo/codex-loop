@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.local/share/codex-loop/codex_loop_stop_hook.py\"",
+            "statusMessage": "Codex Loop checking task completion"
+          }
+        ]
+      }
+    ]
+  }
+}

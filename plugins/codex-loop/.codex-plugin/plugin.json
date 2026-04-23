@@ -1,6 +1,6 @@
 {
   "name": "codex-loop",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "A Codex plugin that turns Stop hooks into task-completion loops.",
   "author": {
     "name": "YuoHira",

@@ -5,7 +5,12 @@ import argparse
 import json
 from pathlib import Path
 
-from codex_loop_spec import resolve_session_id, spec_path_for_session, validate_spec_payload
+from codex_loop_spec import (
+    build_required_paths_modified_baseline,
+    resolve_session_id,
+    spec_path_for_session,
+    validate_spec_payload,
+)
 
 
 DEFAULT_DONE_TOKEN = "STOPGATE_DONE"
@@ -155,6 +160,11 @@ def main() -> int:
         "commands": commands,
         "max_rounds": args.max_rounds if args.max_rounds is not None else existing.get("max_rounds") or 99,
     }
+    if modified:
+        baseline = existing.get("required_paths_modified_baseline")
+        if args.path_modified is not None or not isinstance(baseline, dict):
+            baseline = build_required_paths_modified_baseline(repo_root, modified)
+        spec["required_paths_modified_baseline"] = baseline
 
     errors = validate_spec_payload(spec, repo_root)
     if errors:

@@ -1,6 +1,6 @@
 {
   "name": "codex-loop",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "A Codex plugin that turns Stop hooks into task-completion loops.",
   "author": {
     "name": "YuoHira",
@@ -22,7 +22,7 @@
   "interface": {
     "displayName": "Codex Loop",
     "shortDescription": "Keep Codex going until a task satisfies explicit done rules.",
-    "longDescription": "Codex Loop adds a Stop-hook-based completion gate. It reads a task spec, checks the last assistant reply for required done markers, and asks Codex to continue when the task is not yet complete.",
+    "longDescription": "Codex Loop adds a Stop-hook-based completion gate. It reads a session-bound task spec, checks explicit completion state plus path and command gates, and asks Codex to continue when the task is not yet complete.",
     "developerName": "YuoHira",
     "category": "Productivity",
     "capabilities": [
@@ -34,7 +34,7 @@
     "privacyPolicyURL": "https://github.com/fruktoguo/codex-loop/blob/main/README.md#privacy",
     "termsOfServiceURL": "https://github.com/fruktoguo/codex-loop/blob/main/LICENSE",
     "defaultPrompt": [
-      "Use Codex Loop for this task, create or refresh .codex-loop/spec.json automatically, then continue until the checks pass.",
+      "Use Codex Loop for this task, create or refresh .codex-loop/specs/<session-id>.json automatically, then continue until the checks pass.",
       "Arm Codex Loop for this repository from the user's natural-language task, then keep working until it is truly done.",
       "Inspect the current Codex Loop spec and runtime status, explain why work resumed, and fix the spec if it does not match the task."
     ],

@@ -27,7 +27,7 @@ When the task is to create or refresh the current session-bound spec, prefer thi
 2. Write or update `.codex-loop/specs/<session-id>.json` yourself.
 3. Validate it before claiming the spec is ready.
 
-If local helper scripts are available, you may use them internally. If not, write the JSON manually and validate it against the field rules below.
+If local helper scripts are available, use them internally for specs with `required_paths_modified` so the baseline snapshot is captured. If not, write the JSON manually and validate it against the field rules below.
 
 ## What this plugin expects
 
@@ -53,10 +53,12 @@ If the file does not exist yet, create it before continuing substantive work. Ot
 - `required_paths_modified`
   - Only use this when completion must include real file modifications.
   - If the current directory is not a git repo, it must be `[]`.
+  - When you create the spec with local helpers, a baseline snapshot is stored so later commits or a clean worktree do not hide real changes.
 - `required_paths_exist`
   - Use this only when completion must create concrete files or directories.
 - `commands`
   - Only add real command gates the task actually needs.
+  - Keep `cwd` inside the current repository.
   - If the task is just conversational or text-only, keep it `[]`.
 - `done_token`
   - Compatibility field. It must be a single non-whitespace token, but it is not the loop stop signal.
@@ -80,6 +82,7 @@ When you generate a session-bound spec from a user request:
    - all required top-level keys exist,
    - the chosen gates match the user intent,
    - no field conflicts with the current directory context, especially non-git directories.
+   - path gates and command working directories do not point outside the repository.
 
 If validation fails, fix the file before proceeding with the task.
 

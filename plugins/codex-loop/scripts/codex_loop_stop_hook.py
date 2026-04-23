@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import os
+import re
 from datetime import UTC, datetime
 import subprocess
 import sys
@@ -14,6 +17,8 @@ DEFAULT_REQUIRED_SECTIONS = ["完成了什么", "验证结果", "剩余风险"]
 DEFAULT_MAX_ROUNDS = 99
 DONE_TOKEN_TAIL_RATIO = 0.6
 DONE_TOKEN_TAIL_GRACE_CHARS = 120
+SAFE_SESSION_ID_PATTERN = re.compile(r"[^A-Za-z0-9_.-]+")
+IGNORED_SNAPSHOT_TOP_LEVEL = {".git", ".codex-loop"}
 
 
 def emit(payload: dict[str, Any]) -> None:
@@ -46,6 +51,15 @@ def load_json(path: Path) -> dict[str, Any] | None:
         return None
 
 
+def load_spec_json(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8")), None
+    except FileNotFoundError:
+        return None, None
+    except json.JSONDecodeError as exc:
+        return None, str(exc)
+
+
 def ensure_runtime_dir(repo_root: Path) -> Path:
     runtime_dir = repo_root / ".codex-loop" / "runtime"
     runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -67,6 +81,14 @@ def ensure_history_dir(repo_root: Path) -> Path:
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def normalize_session_id(value: Any) -> str:
+    if not isinstance(value, str):
+        return "default"
+    text = SAFE_SESSION_ID_PATTERN.sub("_", value.strip())
+    text = text.strip("._-")
+    return text or "default"
 
 
 def spec_path_for_session(repo_root: Path, session_id: str) -> Path:
@@ -107,12 +129,17 @@ def normalize_command_checks(value: Any) -> list[dict[str, Any]]:
         command = entry.get("command")
         if not isinstance(command, str) or not command.strip():
             continue
+        raw_expect_exit_code = entry.get("expect_exit_code")
+        try:
+            expect_exit_code = 0 if isinstance(raw_expect_exit_code, bool) else int(raw_expect_exit_code or 0)
+        except (TypeError, ValueError):
+            expect_exit_code = 0
         result.append(
             {
                 "label": str(entry.get("label") or f"command-{index + 1}").strip(),
                 "command": command.strip(),
                 "cwd": str(entry.get("cwd") or ".").strip() or ".",
-                "expect_exit_code": int(entry.get("expect_exit_code") or 0),
+                "expect_exit_code": expect_exit_code,
             }
         )
     return result
@@ -161,41 +188,120 @@ def resolve_git_root(repo_root: Path) -> Path:
 
 def get_modified_paths(repo_root: Path) -> list[str]:
     git_root = resolve_git_root(repo_root)
-    result = run_capture(["git", "status", "--porcelain", "--untracked-files=all"], cwd=git_root)
+    result = run_capture(
+        ["git", "-c", "core.quotePath=false", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+        cwd=git_root,
+    )
     if result.returncode != 0:
         return []
 
     paths: list[str] = []
-    for line in result.stdout.splitlines():
-        if not line.strip():
+    entries = result.stdout.split("\0")
+    index = 0
+    while index < len(entries):
+        entry = entries[index]
+        index += 1
+        if not entry:
             continue
-        payload = line[3:] if len(line) > 3 else line
-        if " -> " in payload:
-            payload = payload.split(" -> ", 1)[1]
-        payload = payload.strip()
+        status = entry[:2]
+        payload = entry[3:] if len(entry) > 3 else entry
         if payload:
             paths.append(payload)
+        if status[:1] in {"R", "C"} or status[1:2] in {"R", "C"}:
+            index += 1
     return paths
+
+
+def is_internal_loop_path(relative_path: str) -> bool:
+    return Path(relative_path).parts[:1] == (".codex-loop",)
+
+
+def resolve_repo_relative_path(repo_root: Path, relative_path: str) -> Path | None:
+    target = (repo_root / relative_path).resolve()
+    try:
+        target.relative_to(repo_root.resolve())
+    except ValueError:
+        return None
+    return target
+
+
+def _hash_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def snapshot_repo_path(repo_root: Path, relative_path: str) -> dict[str, Any]:
+    target = resolve_repo_relative_path(repo_root, relative_path)
+    if target is None:
+        return {"valid": False, "exists": False, "kind": "invalid", "digest": None}
+    if not target.exists():
+        return {"valid": True, "exists": False, "kind": "missing", "digest": None}
+    if target.is_symlink():
+        return {
+            "valid": True,
+            "exists": True,
+            "kind": "symlink",
+            "digest": hashlib.sha256(os.readlink(target).encode("utf-8", "surrogateescape")).hexdigest(),
+        }
+    if target.is_file():
+        return {"valid": True, "exists": True, "kind": "file", "digest": _hash_file(target)}
+    if target.is_dir():
+        digest = hashlib.sha256()
+        root = repo_root.resolve()
+        for child in sorted(path for path in target.rglob("*") if path.is_file() or path.is_symlink()):
+            try:
+                repo_relative_child = child.relative_to(root)
+            except ValueError:
+                continue
+            if any(part in IGNORED_SNAPSHOT_TOP_LEVEL for part in repo_relative_child.parts):
+                continue
+            digest.update(child.relative_to(target).as_posix().encode("utf-8", "surrogateescape"))
+            digest.update(b"\0")
+            if child.is_symlink():
+                digest.update(b"symlink\0")
+                digest.update(os.readlink(child).encode("utf-8", "surrogateescape"))
+            else:
+                digest.update(b"file\0")
+                digest.update(_hash_file(child).encode("ascii"))
+            digest.update(b"\0")
+        return {"valid": True, "exists": True, "kind": "dir", "digest": digest.hexdigest()}
+    return {"valid": True, "exists": True, "kind": "other", "digest": None}
 
 
 def check_required_paths_exist(repo_root: Path, required_paths: list[str]) -> list[str]:
     missing: list[str] = []
     for relative_path in required_paths:
-        target = (repo_root / relative_path).resolve()
-        if not target.exists():
+        target = resolve_repo_relative_path(repo_root, relative_path)
+        if target is None or not target.exists():
             missing.append(relative_path)
     return missing
 
 
-def check_required_paths_modified(repo_root: Path, required_paths: list[str]) -> list[str]:
-    modified_paths = get_modified_paths(repo_root)
+def check_required_paths_modified(
+    repo_root: Path,
+    required_paths: list[str],
+    baselines: dict[str, Any],
+) -> list[str]:
+    modified_paths = [path for path in get_modified_paths(repo_root) if not is_internal_loop_path(path)]
     missing: list[str] = []
     for required_path in required_paths:
-        matched = any(
-            modified == required_path
-            or modified.startswith(required_path.rstrip("/") + "/")
-            for modified in modified_paths
-        )
+        baseline = baselines.get(required_path)
+        if isinstance(baseline, dict):
+            current = snapshot_repo_path(repo_root, required_path)
+            if current.get("valid") and current != baseline:
+                continue
+
+        if required_path in {".", "./"}:
+            matched = bool(modified_paths)
+        else:
+            matched = any(
+                modified == required_path
+                or modified.startswith(required_path.rstrip("/") + "/")
+                for modified in modified_paths
+            )
         if not matched:
             missing.append(required_path)
     return missing
@@ -204,7 +310,35 @@ def check_required_paths_modified(repo_root: Path, required_paths: list[str]) ->
 def run_command_checks(repo_root: Path, command_checks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for check in command_checks:
-        working_dir = (repo_root / str(check["cwd"])).resolve()
+        working_dir = resolve_repo_relative_path(repo_root, str(check["cwd"]))
+        if working_dir is None:
+            results.append(
+                {
+                    "label": check["label"],
+                    "command": check["command"],
+                    "cwd": str(check["cwd"]),
+                    "expect_exit_code": check["expect_exit_code"],
+                    "exit_code": None,
+                    "passed": False,
+                    "stdout": "",
+                    "stderr": "command cwd points outside the repository",
+                }
+            )
+            continue
+        if not working_dir.is_dir():
+            results.append(
+                {
+                    "label": check["label"],
+                    "command": check["command"],
+                    "cwd": str(working_dir),
+                    "expect_exit_code": check["expect_exit_code"],
+                    "exit_code": None,
+                    "passed": False,
+                    "stdout": "",
+                    "stderr": "command cwd does not exist or is not a directory",
+                }
+            )
+            continue
         result = subprocess.run(
             check["command"],
             cwd=str(working_dir),
@@ -303,25 +437,59 @@ def build_continuation_reason(
 def main() -> int:
     event = load_event()
     repo_root = resolve_repo_root(event)
-    session_id = str(event.get("session_id") or "default")
+    session_id = normalize_session_id(event.get("session_id"))
     spec_path = spec_path_for_session(repo_root, session_id)
-    spec = load_json(spec_path)
-    if not spec or not spec.get("enabled", False):
+    spec, spec_error = load_spec_json(spec_path)
+    if spec_error:
+        emit(
+            {
+                "decision": "block",
+                "reason": f"Codex Loop 控制 JSON 解析失败：{spec_path.relative_to(repo_root)}，请先修复 JSON 语法。错误：{spec_error}",
+            }
+        )
+        return 0
+    if not spec:
         emit({})
         return 0
-    owner_session_id = str(spec.get("owner_session_id") or session_id).strip() or session_id
+    enabled_value = spec.get("enabled")
+    if enabled_value is False:
+        emit({})
+        return 0
+    if enabled_value is not True:
+        emit(
+            {
+                "decision": "block",
+                "reason": f"Codex Loop 控制 JSON 字段 enabled 必须是布尔值 true/false：{spec_path.relative_to(repo_root)}",
+            }
+        )
+        return 0
+    owner_session_id = normalize_session_id(spec.get("owner_session_id") or session_id)
     if owner_session_id != session_id:
         emit({})
         return 0
 
     task = str(spec.get("task") or "完成当前任务").strip()
-    completed = bool(spec.get("completed", False))
+    completed_value = spec.get("completed", False)
+    if completed_value is not True and completed_value is not False:
+        emit(
+            {
+                "decision": "block",
+                "reason": f"Codex Loop 控制 JSON 字段 completed 必须是布尔值 true/false：{spec_path.relative_to(repo_root)}",
+            }
+        )
+        return 0
+    completed = completed_value is True
     done_token = str(spec.get("done_token") or DEFAULT_DONE_TOKEN).strip() or DEFAULT_DONE_TOKEN
     required_sections = normalize_required_sections(spec.get("required_sections"))
     required_paths_modified = normalize_string_list(spec.get("required_paths_modified"))
     required_paths_exist = normalize_string_list(spec.get("required_paths_exist"))
+    raw_baselines = spec.get("required_paths_modified_baseline")
+    required_paths_modified_baseline = raw_baselines if isinstance(raw_baselines, dict) else {}
     command_checks = normalize_command_checks(spec.get("commands"))
-    max_rounds = int(spec.get("max_rounds") or DEFAULT_MAX_ROUNDS)
+    try:
+        max_rounds = int(spec.get("max_rounds") or DEFAULT_MAX_ROUNDS)
+    except (TypeError, ValueError):
+        max_rounds = DEFAULT_MAX_ROUNDS
     if max_rounds < 1:
         max_rounds = DEFAULT_MAX_ROUNDS
 
@@ -343,10 +511,14 @@ def main() -> int:
 
     # Only run heavier checks once the session spec has been explicitly marked complete.
     if completed:
-        missing_paths_modified = check_required_paths_modified(repo_root, required_paths_modified)
-        missing_paths_exist = check_required_paths_exist(repo_root, required_paths_exist)
         command_results = run_command_checks(repo_root, command_checks)
         command_failures = summarize_command_failures(command_results)
+        missing_paths_exist = check_required_paths_exist(repo_root, required_paths_exist)
+        missing_paths_modified = check_required_paths_modified(
+            repo_root,
+            required_paths_modified,
+            required_paths_modified_baseline,
+        )
 
     if completed and not missing_paths_modified and not missing_paths_exist and not command_failures:
         runtime.update(
@@ -401,6 +573,8 @@ def main() -> int:
     write_json(runtime_path, runtime)
 
     if rounds_used >= max_rounds:
+        runtime["status"] = "max_rounds_reached"
+        write_json(runtime_path, runtime)
         emit({})
         return 0
 

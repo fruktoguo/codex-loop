@@ -40,7 +40,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/fruktoguo/codex-loop/main/in
 ## 插件做什么
 
 - 提供插件级 `Stop` hook
-- 读取当前工作仓库中的 `.codex-loop/spec.json`
+- 读取当前工作仓库中按 session 绑定的 `.codex-loop/specs/<session-id>.json`
+- 完成后把当前 session 的 spec 归档到 `.codex-loop/history/` 并移除该活动 spec
 - 要求最终回复带显式完成 token
 - 要求最终回复包含指定小节
 - 支持“候选收尾阶段”运行真实命令检查
@@ -52,7 +53,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/fruktoguo/codex-loop/main/in
 
 `codex-loop` 当前使用明确契约：
 
-- 当前项目里存在 `.codex-loop/spec.json`
+- 当前项目里可以同时存在多个 `.codex-loop/specs/<session-id>.json`
+- Stop hook 只会读取当前 `session_id` 对应的那份 spec，其他 session 不受影响
 - Codex 只有在最后一条 assistant 回复同时满足以下条件时才算完成：
   - 在回复后段包含 `done_token`，默认是 `STOPGATE_DONE`
     短回复会自动兼容；长回复则要求 token 出现在后段窗口内
@@ -80,7 +82,7 @@ $codex-loop 创建一个循环任务：每次只回复 hello，第 3 次回复 h
 
 收到这种请求后，Codex 会自己完成这几步：
 
-1. 在当前目录创建或刷新 `.codex-loop/spec.json`
+1. 在当前目录创建或刷新当前 session 的 `.codex-loop/specs/<session-id>.json`
 2. 校验 spec 内容合法且符合任务
 3. 再按这个 spec 继续执行任务
 
@@ -164,7 +166,8 @@ plugins/codex-loop/skills/codex-loop/SKILL.md
 运行时文件不会写进插件目录，而是写进你当前工作的仓库：
 
 ```text
-.codex-loop/spec.json
+.codex-loop/specs/<session-id>.json
+.codex-loop/history/<timestamp>-<session-id>.json
 .codex-loop/runtime/<session-id>.json
 ```
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -17,10 +18,39 @@ REQUIRED_TOP_LEVEL_KEYS = [
     "commands",
     "max_rounds",
 ]
+SPECS_RELATIVE_PATH = Path(".codex-loop/specs")
 
 
 def load_json_file(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def normalize_session_id(value: str | None) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text or None
+
+
+def resolve_session_id(explicit: str | None = None) -> str | None:
+    return normalize_session_id(explicit) or normalize_session_id(os.environ.get("CODEX_THREAD_ID"))
+
+
+def ensure_specs_dir(repo_root: Path) -> Path:
+    specs_dir = repo_root / SPECS_RELATIVE_PATH
+    specs_dir.mkdir(parents=True, exist_ok=True)
+    return specs_dir
+
+
+def spec_path_for_session(repo_root: Path, session_id: str) -> Path:
+    return ensure_specs_dir(repo_root) / f"{session_id}.json"
+
+
+def list_active_spec_paths(repo_root: Path) -> list[Path]:
+    specs_dir = repo_root / SPECS_RELATIVE_PATH
+    if not specs_dir.exists():
+        return []
+    return sorted(path for path in specs_dir.glob("*.json") if path.is_file())
 
 
 def is_git_repo(path: Path) -> bool:
@@ -54,7 +84,7 @@ def _validate_string_list(value: Any, key: str, errors: list[str]) -> list[str]:
 def validate_spec_payload(spec: Any, repo_root: Path) -> list[str]:
     errors: list[str] = []
     if not isinstance(spec, dict):
-        return ["spec.json 顶层必须是 JSON object。"]
+        return ["spec 顶层必须是 JSON object。"]
 
     for key in REQUIRED_TOP_LEVEL_KEYS:
         if key not in spec:
@@ -68,6 +98,8 @@ def validate_spec_payload(spec: Any, repo_root: Path) -> list[str]:
         errors.append("done_token 必须是非空字符串。")
     if isinstance(spec.get("done_token"), str) and any(ch.isspace() for ch in spec["done_token"].strip()):
         errors.append("done_token 不能包含空白字符。")
+    if "owner_session_id" in spec and not _is_non_empty_string(spec.get("owner_session_id")):
+        errors.append("owner_session_id 必须是非空字符串。")
 
     required_sections = _validate_string_list(spec.get("required_sections"), "required_sections", errors)
     required_paths_modified = _validate_string_list(

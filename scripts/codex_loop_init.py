@@ -5,7 +5,7 @@ import argparse
 import json
 from pathlib import Path
 
-from codex_loop_spec import validate_spec_payload
+from codex_loop_spec import resolve_session_id, spec_path_for_session, validate_spec_payload
 
 
 DEFAULT_DONE_TOKEN = "STOPGATE_DONE"
@@ -21,9 +21,14 @@ def load_existing_spec(path: Path) -> dict:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Create or refresh .codex-loop/spec.json for the current repository."
+        description="Create or refresh the current session-bound codex-loop spec for the repository."
     )
     parser.add_argument("task", nargs="?", help="Task description written into the spec")
+    parser.add_argument(
+        "--session-id",
+        default=None,
+        help="Bind the spec to this session id; defaults to CODEX_THREAD_ID",
+    )
     parser.add_argument("--done-token", default=None, help="Done token required in the final answer")
     parser.add_argument(
         "--section",
@@ -108,7 +113,12 @@ def build_commands(raw_commands: list[str] | None, command_cwd: str) -> list[dic
 def main() -> int:
     args = parse_args()
     repo_root = Path.cwd()
-    spec_path = repo_root / ".codex-loop" / "spec.json"
+    session_id = resolve_session_id(args.session_id)
+    if session_id is None:
+        print("缺少 session id。请在 Codex 会话内运行，或显式传入 --session-id。")
+        return 1
+
+    spec_path = spec_path_for_session(repo_root, session_id)
     spec_path.parent.mkdir(parents=True, exist_ok=True)
 
     existing = load_existing_spec(spec_path)
@@ -135,6 +145,7 @@ def main() -> int:
         )
     spec = {
         "enabled": not args.disable,
+        "owner_session_id": session_id,
         "task": task,
         "done_token": args.done_token or existing.get("done_token") or DEFAULT_DONE_TOKEN,
         "required_sections": sections,
@@ -154,6 +165,7 @@ def main() -> int:
     spec_path.write_text(json.dumps(spec, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     print(f"已写入: {spec_path}")
+    print(f"session_id: {session_id}")
     print(f"enabled: {str(spec['enabled']).lower()}")
     print(f"task: {spec['task']}")
     print(f"done_token: {spec['done_token']}")

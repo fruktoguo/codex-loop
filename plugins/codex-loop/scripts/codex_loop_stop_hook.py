@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 import subprocess
 import sys
 from pathlib import Path
@@ -51,9 +52,25 @@ def ensure_runtime_dir(repo_root: Path) -> Path:
     return runtime_dir
 
 
+def ensure_specs_dir(repo_root: Path) -> Path:
+    specs_dir = repo_root / ".codex-loop" / "specs"
+    specs_dir.mkdir(parents=True, exist_ok=True)
+    return specs_dir
+
+
+def ensure_history_dir(repo_root: Path) -> Path:
+    history_dir = repo_root / ".codex-loop" / "history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+    return history_dir
+
+
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def spec_path_for_session(repo_root: Path, session_id: str) -> Path:
+    return ensure_specs_dir(repo_root) / f"{session_id}.json"
 
 
 def normalize_required_sections(value: Any) -> list[str]:
@@ -221,6 +238,27 @@ def summarize_command_failures(command_results: list[dict[str, Any]]) -> list[st
     return failures
 
 
+def archive_completed_spec(
+    repo_root: Path,
+    spec_path: Path,
+    session_id: str,
+    spec: dict[str, Any],
+    runtime: dict[str, Any],
+) -> Path:
+    completed_at = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    archive_path = ensure_history_dir(repo_root) / f"{completed_at}-{session_id}.json"
+    archive_payload = {
+        "completed_at": completed_at,
+        "session_id": session_id,
+        "spec_path": str(spec_path.relative_to(repo_root)),
+        "spec": spec,
+        "runtime": runtime,
+    }
+    write_json(archive_path, archive_payload)
+    spec_path.unlink(missing_ok=True)
+    return archive_path
+
+
 def build_continuation_reason(
     task: str,
     done_token: str,
@@ -260,9 +298,14 @@ def build_continuation_reason(
 def main() -> int:
     event = load_event()
     repo_root = resolve_repo_root(event)
-    spec_path = repo_root / ".codex-loop" / "spec.json"
+    session_id = str(event.get("session_id") or "default")
+    spec_path = spec_path_for_session(repo_root, session_id)
     spec = load_json(spec_path)
     if not spec or not spec.get("enabled", False):
+        emit({})
+        return 0
+    owner_session_id = str(spec.get("owner_session_id") or session_id).strip() or session_id
+    if owner_session_id != session_id:
         emit({})
         return 0
 
@@ -276,7 +319,6 @@ def main() -> int:
     if max_rounds < 1:
         max_rounds = DEFAULT_MAX_ROUNDS
 
-    session_id = str(event.get("session_id") or "default")
     runtime_path = ensure_runtime_dir(repo_root) / f"{session_id}.json"
     runtime = load_json(runtime_path) or {"rounds_used": 0, "status": "idle"}
 
@@ -321,6 +363,8 @@ def main() -> int:
                 "command_failures": [],
             }
         )
+        archive_path = archive_completed_spec(repo_root, spec_path, session_id, spec, runtime)
+        runtime["archived_spec_path"] = str(archive_path.relative_to(repo_root))
         write_json(runtime_path, runtime)
         emit({})
         return 0

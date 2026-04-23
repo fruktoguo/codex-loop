@@ -13,7 +13,7 @@ The standard user workflow is:
 
 1. The user explicitly invokes `$codex-loop` or clearly asks for loop execution.
 2. The user describes the task in natural language.
-3. You create or refresh `.codex-loop/spec.json` yourself.
+3. You create or refresh the current session-bound spec under `.codex-loop/specs/<session-id>.json` yourself.
 4. You validate the spec yourself.
 5. You continue the real task under that spec.
 
@@ -21,17 +21,17 @@ Do not make the user run `codex-loop-init` or `codex-loop-validate` as the norma
 
 ## Spec creation rule
 
-When the task is to create or refresh `.codex-loop/spec.json`, prefer this order:
+When the task is to create or refresh the current session-bound spec, prefer this order:
 
 1. Infer the correct spec shape from the user's request.
-2. Write or update `.codex-loop/spec.json` yourself.
+2. Write or update `.codex-loop/specs/<session-id>.json` yourself.
 3. Validate it before claiming the spec is ready.
 
 If local helper scripts are available, you may use them internally. If not, write the JSON manually and validate it against the field rules below.
 
 ## What this plugin expects
 
-The current repository should contain `.codex-loop/spec.json` with:
+The current repository should contain a current-session spec at `.codex-loop/specs/<session-id>.json` with:
 
 - `enabled`
 - `task`
@@ -42,7 +42,7 @@ The current repository should contain `.codex-loop/spec.json` with:
 - `commands` when completion must pass real command checks
 - `max_rounds`
 
-If the file does not exist yet, create it before continuing substantive work.
+If the file does not exist yet, create it before continuing substantive work. Other sessions should not be affected by this spec.
 
 ## Field selection rules
 
@@ -64,7 +64,7 @@ If the file does not exist yet, create it before continuing substantive work.
 
 ## Authoring discipline
 
-When you generate `.codex-loop/spec.json` from a user request:
+When you generate a session-bound spec from a user request:
 
 1. Translate the user intent into the smallest sufficient gate.
 2. Do not add file gates or command gates unless the task truly needs them.
@@ -88,7 +88,8 @@ When Codex Loop is active:
 4. Do not emit the done token in partial progress updates.
 5. If `commands` are configured, treat them as real gate checks. A final answer is not complete unless those commands pass.
 6. If `required_paths_modified` or `required_paths_exist` are configured, satisfy them before emitting the done token.
-7. If verification is incomplete, be explicit; Codex Loop should keep the loop alive until the final answer format and command/path gates are satisfied or `max_rounds` is reached.
+7. Once the task is complete, Codex Loop will archive the current session's active spec into `.codex-loop/history/` and remove that session-bound active spec.
+8. If verification is incomplete, be explicit; Codex Loop should keep the loop alive until the final answer format and command/path gates are satisfied or `max_rounds` is reached.
 
 ## Recommended defaults
 

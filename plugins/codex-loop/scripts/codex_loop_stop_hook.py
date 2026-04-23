@@ -262,11 +262,7 @@ def archive_completed_spec(
 def build_continuation_reason(
     task: str,
     spec_path: Path,
-    done_token: str,
     completed: bool,
-    done_token_contains: bool,
-    done_token_last_index: int,
-    done_token_min_start: int,
     missing_sections: list[str],
     missing_paths_modified: list[str],
     missing_paths_exist: list[str],
@@ -284,18 +280,12 @@ def build_continuation_reason(
         "完成开关字段位于该 JSON 顶层：\"completed\"。",
         f"完成前必须保持 {spec_path_text} 里的这一段为：\"completed\": false",
         f"只有任务真实完成并确认配置的 gate 应该通过后，才编辑 {spec_path_text}，把这一段改成：\"completed\": true",
-        "未完成时不要输出最终交付、不要解释自己不会输出 done token，直接继续执行或报告具体阻塞。",
+        "未完成时不要输出最终交付，也不要用元叙述解释停止条件；直接继续执行或报告具体阻塞。",
     ]
     if not completed:
         parts.append("当前 completed=false，因此不能结束。")
     elif missing_paths_modified or missing_paths_exist or command_failures:
         parts.append("当前 completed=true，但仍有 gate 未通过，因此不能结束；修复失败项后再收口。")
-    parts.append(f"最终交付建议在回复后段包含 done token：{done_token}")
-    if done_token_contains and done_token_last_index < done_token_min_start:
-        parts.append(
-            "done token 已出现但位置过早："
-            f"当前起始位置 {done_token_last_index}，需要位于后段（起始位置至少 {done_token_min_start}）。"
-        )
     if missing_sections:
         parts.append("当前缺少这些必填小节：" + "、".join(missing_sections))
     if missing_paths_modified:
@@ -420,11 +410,7 @@ def main() -> int:
             "reason": build_continuation_reason(
                 task,
                 spec_path.relative_to(repo_root),
-                done_token,
                 completed,
-                bool(done_token_state["contains"]),
-                int(done_token_state["last_index"]),
-                int(done_token_state["min_start"]),
                 missing_sections,
                 missing_paths_modified,
                 missing_paths_exist,

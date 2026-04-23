@@ -59,7 +59,8 @@ If the file does not exist yet, create it before continuing substantive work. Ot
   - Only add real command gates the task actually needs.
   - If the task is just conversational or text-only, keep it `[]`.
 - `done_token`
-  - Must be a single non-whitespace token.
+  - Compatibility field. It must be a single non-whitespace token, but it is not the loop stop signal.
+  - Do not add it to the final reply unless the user explicitly asked for that literal text.
 - `completed`
   - Must start as `false`.
   - Set it to `true` only after the task is truly complete and all configured gates should pass.
@@ -92,7 +93,7 @@ When Codex Loop is active:
 4. Keep `completed: false` while work is incomplete.
 5. Before ending a completed task, edit the current session's `.codex-loop/specs/<session-id>.json` and change only the top-level `completed` field from `false` to `true`.
 6. Set `completed: true` only after the task is truly complete and all configured gates should pass.
-7. Include `done_token` only when the task is truly complete by the spec, and place it near the end of the final reply. Very short final replies are tolerated automatically.
+7. Do not include `done_token` in replies unless the user explicitly asked for that literal text.
 8. Do not emit the done token in partial progress updates.
 9. If `commands` are configured, treat them as real gate checks. A final answer is not complete unless those commands pass.
 10. If `required_paths_modified` or `required_paths_exist` are configured, satisfy them before setting `completed: true`.
@@ -108,7 +109,7 @@ When the work is truly done:
 1. Open or patch `.codex-loop/specs/<session-id>.json`.
 2. Change the top-level field `"completed": false` to `"completed": true`.
 3. Leave unrelated spec fields unchanged.
-4. Send the final answer with the configured `required_sections` and `done_token`.
+4. Send the final answer in the format requested by the task. Do not add `done_token` unless the task explicitly requested it.
 
 If the work is not done, do not modify `completed`; continue work or report the exact blocker.
 
@@ -167,7 +168,7 @@ Then the spec should usually include:
 
 - plain-text `task`
 - `completed: false`
-- `done_token` such as `HELLO_LOOP_DONE`
+- a default compatibility `done_token`, but the replies should remain `hello` unless the user explicitly asks for extra text
 - `required_sections: []`
 - `required_paths_modified: []`
 - `required_paths_exist: []`
@@ -178,7 +179,7 @@ Helper commands may still be used internally, but never present them as the requ
 
 ## Final answer discipline
 
-A Codex Loop-compatible final answer should place the token near the end:
+A Codex Loop-compatible final answer should follow the task's requested shape:
 
 ```text
 完成了什么
@@ -189,8 +190,6 @@ A Codex Loop-compatible final answer should place the token near the end:
 
 剩余风险
 ...
-
-STOPGATE_DONE
 ```
 
-Do not include the token unless you are willing for the loop to stop.
+Do not include the token unless the user explicitly requested that literal text. The loop stops from `completed: true` plus passing gates, not from reply text.

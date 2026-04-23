@@ -29,7 +29,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Bind the spec to this session id; defaults to CODEX_THREAD_ID",
     )
-    parser.add_argument("--done-token", default=None, help="Done token required in the final answer")
+    parser.add_argument("--done-token", default=None, help="Compatibility marker stored in the spec")
     parser.add_argument(
         "--section",
         action="append",

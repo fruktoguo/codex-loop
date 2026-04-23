@@ -84,7 +84,7 @@ When Codex Loop is active:
 
 1. Read the spec before major work.
 2. Treat `required_sections` as mandatory output sections in the final answer.
-3. Include `done_token` only when the task is truly complete by the spec.
+3. Include `done_token` only when the task is truly complete by the spec, and place it near the end of the final reply. Very short final replies are tolerated automatically.
 4. Do not emit the done token in partial progress updates.
 5. If `commands` are configured, treat them as real gate checks. A final answer is not complete unless those commands pass.
 6. If `required_paths_modified` or `required_paths_exist` are configured, satisfy them before emitting the done token.
@@ -153,11 +153,9 @@ Helper commands may still be used internally, but never present them as the requ
 
 ## Final answer discipline
 
-A Codex Loop-compatible final answer should look like:
+A Codex Loop-compatible final answer should place the token near the end:
 
 ```text
-STOPGATE_DONE
-
 完成了什么
 ...
 
@@ -166,6 +164,8 @@ STOPGATE_DONE
 
 剩余风险
 ...
+
+STOPGATE_DONE
 ```
 
 Do not include the token unless you are willing for the loop to stop.

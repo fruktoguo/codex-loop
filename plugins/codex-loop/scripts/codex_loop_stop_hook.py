@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -12,6 +11,8 @@ from typing import Any
 DEFAULT_DONE_TOKEN = "STOPGATE_DONE"
 DEFAULT_REQUIRED_SECTIONS = ["完成了什么", "验证结果", "剩余风险"]
 DEFAULT_MAX_ROUNDS = 99
+DONE_TOKEN_TAIL_RATIO = 0.6
+DONE_TOKEN_TAIL_GRACE_CHARS = 120
 
 
 def emit(payload: dict[str, Any]) -> None:
@@ -109,9 +110,19 @@ def contains_required_sections(message: str, sections: list[str]) -> tuple[bool,
     return len(missing) == 0, missing
 
 
-def contains_done_token(message: str, done_token: str) -> bool:
-    pattern = re.compile(rf"(^|\s){re.escape(done_token)}(\s|$)")
-    return bool(pattern.search(message))
+def analyze_done_token(message: str, done_token: str) -> dict[str, Any]:
+    ratio_min_start = max(0, int(len(message) * DONE_TOKEN_TAIL_RATIO))
+    grace_min_start = max(0, len(message) - DONE_TOKEN_TAIL_GRACE_CHARS)
+    min_start = min(ratio_min_start, grace_min_start)
+    last_index = message.rfind(done_token)
+    return {
+        "contains": last_index >= 0,
+        "near_tail": last_index >= min_start,
+        "last_index": last_index,
+        "min_start": min_start,
+        "ratio_min_start": ratio_min_start,
+        "grace_min_start": grace_min_start,
+    }
 
 
 def run_capture(command: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -213,6 +224,9 @@ def summarize_command_failures(command_results: list[dict[str, Any]]) -> list[st
 def build_continuation_reason(
     task: str,
     done_token: str,
+    done_token_contains: bool,
+    done_token_last_index: int,
+    done_token_min_start: int,
     missing_sections: list[str],
     missing_paths_modified: list[str],
     missing_paths_exist: list[str],
@@ -224,8 +238,13 @@ def build_continuation_reason(
         "继续当前任务，不要停。",
         f"任务目标：{task}",
         f"当前 Codex Loop 轮次：{rounds_used}/{max_rounds}",
-        f"最终回复必须包含 done token：{done_token}",
+        f"最终回复必须在回复后段包含 done token：{done_token}",
     ]
+    if done_token_contains and done_token_last_index < done_token_min_start:
+        parts.append(
+            "done token 已出现但位置过早："
+            f"当前起始位置 {done_token_last_index}，需要位于后段（起始位置至少 {done_token_min_start}）。"
+        )
     if missing_sections:
         parts.append("当前缺少这些必填小节：" + "、".join(missing_sections))
     if missing_paths_modified:
@@ -266,7 +285,8 @@ def main() -> int:
         emit({})
         return 0
 
-    has_done_token = contains_done_token(last_assistant_message, done_token)
+    done_token_state = analyze_done_token(last_assistant_message, done_token)
+    has_done_token = bool(done_token_state["near_tail"])
     has_sections, missing_sections = contains_required_sections(last_assistant_message, required_sections)
     missing_paths_modified: list[str] = []
     missing_paths_exist: list[str] = []
@@ -290,7 +310,15 @@ def main() -> int:
                 "required_sections": required_sections,
                 "required_paths_modified": required_paths_modified,
                 "required_paths_exist": required_paths_exist,
+                "missing_sections": [],
+                "missing_paths_modified": [],
+                "missing_paths_exist": [],
+                "has_done_token": has_done_token,
+                "done_token_contains": done_token_state["contains"],
+                "done_token_last_index": done_token_state["last_index"],
+                "done_token_min_start": done_token_state["min_start"],
                 "command_results": command_results,
+                "command_failures": [],
             }
         )
         write_json(runtime_path, runtime)
@@ -311,6 +339,9 @@ def main() -> int:
             "missing_paths_modified": missing_paths_modified,
             "missing_paths_exist": missing_paths_exist,
             "has_done_token": has_done_token,
+            "done_token_contains": done_token_state["contains"],
+            "done_token_last_index": done_token_state["last_index"],
+            "done_token_min_start": done_token_state["min_start"],
             "command_results": command_results,
             "command_failures": command_failures,
         }
@@ -327,6 +358,9 @@ def main() -> int:
             "reason": build_continuation_reason(
                 task,
                 done_token,
+                bool(done_token_state["contains"]),
+                int(done_token_state["last_index"]),
+                int(done_token_state["min_start"]),
                 missing_sections,
                 missing_paths_modified,
                 missing_paths_exist,

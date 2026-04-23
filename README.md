@@ -54,7 +54,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/fruktoguo/codex-loop/main/in
 
 - 当前项目里存在 `.codex-loop/spec.json`
 - Codex 只有在最后一条 assistant 回复同时满足以下条件时才算完成：
-  - 包含 `done_token`，默认是 `STOPGATE_DONE`
+  - 在回复后段包含 `done_token`，默认是 `STOPGATE_DONE`
+    短回复会自动兼容；长回复则要求 token 出现在后段窗口内
   - 包含 `required_sections` 中列出的所有小节标题
   - 如果配置了 `required_paths_modified`，这些路径必须真的形成修改结果
   - 如果配置了 `required_paths_exist`，这些路径必须真的存在
@@ -111,7 +112,7 @@ $codex-loop 创建一个循环任务：每次只回复 hello，第 3 次回复 h
 }
 ```
 
-如果 spec 正确，之后的 Stop hook 会自动接管续跑。若最终回复没有满足 done token、必填小节、命令检查或路径检查，Codex Loop 会继续当前任务。
+如果 spec 正确，之后的 Stop hook 会自动接管续跑。若最终回复没有在后段放置 done token，或没有满足必填小节、命令检查、路径检查，Codex Loop 会继续当前任务。
 
 纯文本循环任务则应使用更小的 spec，而不是默认三段式结构。例如“每轮只回复 hello，第 3 轮结束”这类任务，应把 `required_sections`、`required_paths_modified`、`required_paths_exist`、`commands` 都设为空。
 

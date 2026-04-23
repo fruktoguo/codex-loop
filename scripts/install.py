@@ -50,6 +50,15 @@ def read_text(path: Path) -> str:
         return ""
 
 
+def load_plugin_version(source_repo: Path) -> str:
+    plugin_path = source_repo / "plugins" / "codex-loop" / ".codex-plugin" / "plugin.json"
+    payload = json.loads(plugin_path.read_text(encoding="utf-8"))
+    version = str(payload.get("version") or "").strip()
+    if not version:
+        raise SystemExit(f"未找到插件版本号: {plugin_path}")
+    return version
+
+
 def upsert_top_level_key(text: str, key: str, value_literal: str) -> str:
     lines = text.splitlines()
     key_prefix = f"{key} ="
@@ -258,6 +267,7 @@ def main() -> int:
     ensure_codex()
 
     marketplace_name, plugin_name = load_marketplace(source_repo)
+    plugin_version = load_plugin_version(source_repo)
     home = Path.home()
     config_path = home / CONFIG_RELATIVE_PATH
     config_text = read_text(config_path)
@@ -275,7 +285,8 @@ def main() -> int:
     sys.stdout.write(
         "\n".join(
             [
-                "codex-loop 安装完成。",
+                f"codex-loop v{plugin_version} 安装完成。",
+                f"version: {plugin_version}",
                 f"marketplace: {marketplace_name}",
                 f"marketplace source: {marketplace_source}",
                 f"plugin: {plugin_name}@{marketplace_name}",

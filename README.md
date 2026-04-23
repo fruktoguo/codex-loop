@@ -21,6 +21,8 @@
 bash <(curl -fsSL https://raw.githubusercontent.com/fruktoguo/codex-loop/main/install.sh)
 ```
 
+安装脚本会先打印当前要安装的版本号，例如 `Installing codex-loop v0.1.3 ...`。
+
 这条命令会一次性完成：
 
 - 检查 `codex` CLI 是否存在
@@ -36,6 +38,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/fruktoguo/codex-loop/main/in
 ```bash
 ./install.sh
 ```
+
+如果之前已经安装过，更新方式仍然是重新运行安装脚本；安装输出里会显示当前安装的版本号，方便确认是否已经更新到目标版本。
 
 ## 插件做什么
 

@@ -53,6 +53,7 @@ def main() -> int:
         spec = read_json(spec_path)
         print(f"spec: {spec_path}")
         print(f"enabled: {str(bool(spec.get('enabled', False))).lower()}")
+        print(f"completed: {str(bool(spec.get('completed', False))).lower()}")
         print(f"task: {spec.get('task', '')}")
         print(f"done_token: {spec.get('done_token', '')}")
         print(f"required_sections: {', '.join(spec.get('required_sections', []))}")

@@ -34,6 +34,7 @@ If local helper scripts are available, you may use them internally. If not, writ
 The current repository should contain a current-session spec at `.codex-loop/specs/<session-id>.json` with:
 
 - `enabled`
+- `completed`
 - `task`
 - `done_token`
 - `required_sections`
@@ -59,6 +60,9 @@ If the file does not exist yet, create it before continuing substantive work. Ot
   - If the task is just conversational or text-only, keep it `[]`.
 - `done_token`
   - Must be a single non-whitespace token.
+- `completed`
+  - Must start as `false`.
+  - Set it to `true` only after the task is truly complete and all configured gates should pass.
 - `max_rounds`
   - Must be a positive integer.
 
@@ -83,19 +87,37 @@ If validation fails, fix the file before proceeding with the task.
 When Codex Loop is active:
 
 1. Read the spec before major work.
-2. Treat `required_sections` as mandatory output sections in the final answer.
-3. Include `done_token` only when the task is truly complete by the spec, and place it near the end of the final reply. Very short final replies are tolerated automatically.
-4. Do not emit the done token in partial progress updates.
-5. If `commands` are configured, treat them as real gate checks. A final answer is not complete unless those commands pass.
-6. If `required_paths_modified` or `required_paths_exist` are configured, satisfy them before emitting the done token.
-7. Once the task is complete, Codex Loop will archive the current session's active spec into `.codex-loop/history/` and remove that session-bound active spec.
-8. If verification is incomplete, be explicit; Codex Loop should keep the loop alive until the final answer format and command/path gates are satisfied or `max_rounds` is reached.
+2. The current session's spec file is the loop completion switch.
+3. Treat `required_sections` as final output guidance.
+4. Keep `completed: false` while work is incomplete.
+5. Before ending a completed task, edit the current session's `.codex-loop/specs/<session-id>.json` and change only the top-level `completed` field from `false` to `true`.
+6. Set `completed: true` only after the task is truly complete and all configured gates should pass.
+7. Include `done_token` only when the task is truly complete by the spec, and place it near the end of the final reply. Very short final replies are tolerated automatically.
+8. Do not emit the done token in partial progress updates.
+9. If `commands` are configured, treat them as real gate checks. A final answer is not complete unless those commands pass.
+10. If `required_paths_modified` or `required_paths_exist` are configured, satisfy them before setting `completed: true`.
+11. Once the task is complete, Codex Loop will archive the current session's active spec into `.codex-loop/history/` and remove that session-bound active spec.
+12. If verification is incomplete, keep working or report the concrete blocker; do not end with a meta statement such as "I will not output the done token."
+
+## Completion Switch
+
+The loop stops only after the current session's spec has `completed: true` and the configured path/command gates pass. Text in the assistant reply is not enough to stop the loop.
+
+When the work is truly done:
+
+1. Open or patch `.codex-loop/specs/<session-id>.json`.
+2. Change the top-level field `"completed": false` to `"completed": true`.
+3. Leave unrelated spec fields unchanged.
+4. Send the final answer with the configured `required_sections` and `done_token`.
+
+If the work is not done, do not modify `completed`; continue work or report the exact blocker.
 
 ## Recommended defaults
 
 ```json
 {
   "enabled": true,
+  "completed": false,
   "task": "[current task]",
   "done_token": "STOPGATE_DONE",
   "required_sections": [
@@ -130,6 +152,7 @@ $codex-loop 修复这个构建错误，并确认 pnpm build 通过
 Then the spec should usually include:
 
 - a structured `task`
+- `completed: false`
 - default `required_sections`
 - a real `commands` gate such as `pnpm build`
 - `required_paths_modified` only if actual code edits are required
@@ -143,6 +166,7 @@ $codex-loop 创建一个循环任务，每次只回复 hello，第 3 次结束
 Then the spec should usually include:
 
 - plain-text `task`
+- `completed: false`
 - `done_token` such as `HELLO_LOOP_DONE`
 - `required_sections: []`
 - `required_paths_modified: []`

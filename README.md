@@ -46,8 +46,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/fruktoguo/codex-loop/main/in
 - 提供插件级 `Stop` hook
 - 读取当前工作仓库中按 session 绑定的 `.codex-loop/specs/<session-id>.json`
 - 完成后把当前 session 的 spec 归档到 `.codex-loop/history/` 并移除该活动 spec
-- 要求最终回复带显式完成 token
-- 要求最终回复包含指定小节
+- 要求先把当前 session spec 的 `completed` 改为 `true`，再允许结束
+- 支持最终回复带显式完成 token 和指定小节
 - 支持“候选收尾阶段”运行真实命令检查
 - 支持要求某些路径必须真的被修改或生成
 - 用 `max_rounds` 防止无限循环
@@ -59,13 +59,13 @@ bash <(curl -fsSL https://raw.githubusercontent.com/fruktoguo/codex-loop/main/in
 
 - 当前项目里可以同时存在多个 `.codex-loop/specs/<session-id>.json`
 - Stop hook 只会读取当前 `session_id` 对应的那份 spec，其他 session 不受影响
+- 当前 session 的 spec 是循环结束开关；AI 必须实际编辑这份 JSON，把顶层 `completed` 从 `false` 改成 `true`
 - Codex 只有在最后一条 assistant 回复同时满足以下条件时才算完成：
-  - 在回复后段包含 `done_token`，默认是 `STOPGATE_DONE`
-    短回复会自动兼容；长回复则要求 token 出现在后段窗口内
-  - 包含 `required_sections` 中列出的所有小节标题
+  - 当前 session spec 里的 `completed` 是 `true`
   - 如果配置了 `required_paths_modified`，这些路径必须真的形成修改结果
   - 如果配置了 `required_paths_exist`，这些路径必须真的存在
   - 如果配置了 `commands`，这些命令必须按预期退出码通过
+  - `done_token` 和 `required_sections` 仍会记录并提示，但不再作为停止的硬门槛
 - 如果不满足，`Stop` hook 返回 `decision: "block"` 和 continuation reason，让 Codex 继续
 
 这还不是“全自动项目经理”，但已经是一个稳定、透明、可追踪的 completion gate。
@@ -95,6 +95,7 @@ $codex-loop 创建一个循环任务：每次只回复 hello，第 3 次回复 h
 ```json
 {
   "enabled": true,
+  "completed": false,
   "task": "Fix the failing test and verify the result.",
   "done_token": "STOPGATE_DONE",
   "required_sections": [
@@ -118,7 +119,9 @@ $codex-loop 创建一个循环任务：每次只回复 hello，第 3 次回复 h
 }
 ```
 
-如果 spec 正确，之后的 Stop hook 会自动接管续跑。若最终回复没有在后段放置 done token，或没有满足必填小节、命令检查、路径检查，Codex Loop 会继续当前任务。
+如果 spec 正确，之后的 Stop hook 会自动接管续跑。若当前 session spec 没有被改成 `completed: true`，或没有满足命令检查、路径检查，Codex Loop 会继续当前任务。
+
+任务真正完成时，AI 应先修改当前 session 的 `.codex-loop/specs/<session-id>.json`，把顶层字段 `"completed": false` 改成 `"completed": true`，然后再输出最终交付。仅在回复文本里说明“已完成”或写出 `done_token` 不会停止循环。
 
 纯文本循环任务则应使用更小的 spec，而不是默认三段式结构。例如“每轮只回复 hello，第 3 轮结束”这类任务，应把 `required_sections`、`required_paths_modified`、`required_paths_exist`、`commands` 都设为空。
 

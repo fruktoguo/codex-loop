@@ -1,5 +1,6 @@
 {
   "enabled": true,
+  "completed": false,
   "task": "Fix the failing test and verify the result.",
   "done_token": "STOPGATE_DONE",
   "required_sections": [

@@ -10,6 +10,7 @@ from typing import Any
 
 REQUIRED_TOP_LEVEL_KEYS = [
     "enabled",
+    "completed",
     "task",
     "done_token",
     "required_sections",
@@ -92,6 +93,8 @@ def validate_spec_payload(spec: Any, repo_root: Path) -> list[str]:
 
     if "enabled" in spec and not isinstance(spec.get("enabled"), bool):
         errors.append("enabled 必须是布尔值。")
+    if "completed" in spec and not isinstance(spec.get("completed"), bool):
+        errors.append("completed 必须是布尔值。")
     if "task" in spec and not _is_non_empty_string(spec.get("task")):
         errors.append("task 必须是非空字符串。")
     if "done_token" in spec and not _is_non_empty_string(spec.get("done_token")):

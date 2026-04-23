@@ -145,6 +145,7 @@ def main() -> int:
         )
     spec = {
         "enabled": not args.disable,
+        "completed": False,
         "owner_session_id": session_id,
         "task": task,
         "done_token": args.done_token or existing.get("done_token") or DEFAULT_DONE_TOKEN,
@@ -167,6 +168,7 @@ def main() -> int:
     print(f"已写入: {spec_path}")
     print(f"session_id: {session_id}")
     print(f"enabled: {str(spec['enabled']).lower()}")
+    print(f"completed: {str(spec['completed']).lower()}")
     print(f"task: {spec['task']}")
     print(f"done_token: {spec['done_token']}")
     print(f"required_sections: {', '.join(spec['required_sections'])}")

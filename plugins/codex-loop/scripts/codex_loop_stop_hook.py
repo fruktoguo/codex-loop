@@ -261,7 +261,9 @@ def archive_completed_spec(
 
 def build_continuation_reason(
     task: str,
+    spec_path: Path,
     done_token: str,
+    completed: bool,
     done_token_contains: bool,
     done_token_last_index: int,
     done_token_min_start: int,
@@ -272,12 +274,23 @@ def build_continuation_reason(
     rounds_used: int,
     max_rounds: int,
 ) -> str:
+    spec_path_text = str(spec_path)
     parts = [
         "继续当前任务，不要停。",
         f"任务目标：{task}",
         f"当前 Codex Loop 轮次：{rounds_used}/{max_rounds}",
-        f"最终回复必须在回复后段包含 done token：{done_token}",
+        f"当前循环的控制 JSON 文件路径：{spec_path_text}",
+        f"当前循环的控制 JSON 文件名：{spec_path.name}",
+        "完成开关字段位于该 JSON 顶层：\"completed\"。",
+        f"完成前必须保持 {spec_path_text} 里的这一段为：\"completed\": false",
+        f"只有任务真实完成并确认配置的 gate 应该通过后，才编辑 {spec_path_text}，把这一段改成：\"completed\": true",
+        "未完成时不要输出最终交付、不要解释自己不会输出 done token，直接继续执行或报告具体阻塞。",
     ]
+    if not completed:
+        parts.append("当前 completed=false，因此不能结束。")
+    elif missing_paths_modified or missing_paths_exist or command_failures:
+        parts.append("当前 completed=true，但仍有 gate 未通过，因此不能结束；修复失败项后再收口。")
+    parts.append(f"最终交付建议在回复后段包含 done token：{done_token}")
     if done_token_contains and done_token_last_index < done_token_min_start:
         parts.append(
             "done token 已出现但位置过早："
@@ -291,7 +304,9 @@ def build_continuation_reason(
         parts.append("这些路径还不存在：" + "、".join(missing_paths_exist))
     if command_failures:
         parts.append("这些命令检查还没通过：" + "；".join(command_failures))
-    parts.append("在真正完成前不要输出 done token；完成后再用必填小节给出最终交付。")
+    parts.append(
+        f"完成前继续执行；完成后先修改 {spec_path_text} 中的顶层字段 \"completed\": true，再输出最终交付。"
+    )
     return " ".join(parts)
 
 
@@ -310,6 +325,7 @@ def main() -> int:
         return 0
 
     task = str(spec.get("task") or "完成当前任务").strip()
+    completed = bool(spec.get("completed", False))
     done_token = str(spec.get("done_token") or DEFAULT_DONE_TOKEN).strip() or DEFAULT_DONE_TOKEN
     required_sections = normalize_required_sections(spec.get("required_sections"))
     required_paths_modified = normalize_string_list(spec.get("required_paths_modified"))
@@ -335,24 +351,25 @@ def main() -> int:
     command_results: list[dict[str, Any]] = []
     command_failures: list[str] = []
 
-    # Only run heavier checks once the assistant reply looks like a candidate final answer.
-    if has_done_token and has_sections:
+    # Only run heavier checks once the session spec has been explicitly marked complete.
+    if completed:
         missing_paths_modified = check_required_paths_modified(repo_root, required_paths_modified)
         missing_paths_exist = check_required_paths_exist(repo_root, required_paths_exist)
         command_results = run_command_checks(repo_root, command_checks)
         command_failures = summarize_command_failures(command_results)
 
-    if has_done_token and has_sections and not missing_paths_modified and not missing_paths_exist and not command_failures:
+    if completed and not missing_paths_modified and not missing_paths_exist and not command_failures:
         runtime.update(
             {
                 "status": "done",
                 "rounds_used": runtime.get("rounds_used", 0),
                 "task": task,
+                "completed": completed,
                 "done_token": done_token,
                 "required_sections": required_sections,
                 "required_paths_modified": required_paths_modified,
                 "required_paths_exist": required_paths_exist,
-                "missing_sections": [],
+                "missing_sections": missing_sections,
                 "missing_paths_modified": [],
                 "missing_paths_exist": [],
                 "has_done_token": has_done_token,
@@ -375,6 +392,7 @@ def main() -> int:
             "status": "continued",
             "rounds_used": rounds_used,
             "task": task,
+            "completed": completed,
             "done_token": done_token,
             "required_sections": required_sections,
             "required_paths_modified": required_paths_modified,
@@ -401,7 +419,9 @@ def main() -> int:
             "decision": "block",
             "reason": build_continuation_reason(
                 task,
+                spec_path.relative_to(repo_root),
                 done_token,
+                completed,
                 bool(done_token_state["contains"]),
                 int(done_token_state["last_index"]),
                 int(done_token_state["min_start"]),

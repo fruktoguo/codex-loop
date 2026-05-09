@@ -114,8 +114,41 @@ def upsert_key_in_section(text: str, section_header: str, key: str, value_litera
             lines[index] = f"{key} = {value_literal}"
             return "\n".join(lines) + "\n"
 
-    lines.insert(section_end, f"{key} = {value_literal}")
+    insert_at = section_end
+    while insert_at > section_start + 1 and lines[insert_at - 1].strip() == "":
+        insert_at -= 1
+
+    lines.insert(insert_at, f"{key} = {value_literal}")
     return "\n".join(lines) + "\n"
+
+
+def remove_key_in_section(text: str, section_header: str, key: str) -> str:
+    lines = text.splitlines()
+    section_line = f"[{section_header}]"
+    key_prefix = f"{key} ="
+
+    section_start = None
+    for index, line in enumerate(lines):
+        if line.strip() == section_line:
+            section_start = index
+            break
+
+    if section_start is None:
+        return text if text.endswith("\n") or not text else text + "\n"
+
+    section_end = len(lines)
+    for index in range(section_start + 1, len(lines)):
+        stripped = lines[index].strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section_end = index
+            break
+
+    filtered_lines = [
+        line
+        for index, line in enumerate(lines)
+        if not (section_start < index < section_end and line.strip().startswith(key_prefix))
+    ]
+    return "\n".join(filtered_lines) + "\n"
 
 
 def write_text(path: Path, text: str) -> None:
@@ -234,19 +267,54 @@ def load_marketplace(repo_root: Path) -> tuple[str, str]:
     return marketplace_name, plugin_name
 
 
-def add_or_upgrade_marketplace(source: str, marketplace_name: str) -> None:
+def process_output(result: subprocess.CompletedProcess[str]) -> str:
+    return "\n".join(part.strip() for part in [result.stdout, result.stderr] if part.strip())
+
+
+def is_already_added_message(output: str) -> bool:
+    lowered = output.lower()
+    return "already" in lowered or "exists" in lowered
+
+
+def is_source_conflict_message(output: str) -> bool:
+    lowered = output.lower()
+    return "different source" in lowered or "already added from a different source" in lowered
+
+
+def is_not_git_marketplace_message(output: str) -> bool:
+    lowered = output.lower()
+    return "not configured as a git marketplace" in lowered
+
+
+def replace_marketplace(source: str, marketplace_name: str) -> str:
+    remove = run(["codex", "plugin", "marketplace", "remove", marketplace_name])
+    if remove.returncode != 0:
+        raise SystemExit(process_output(remove) or "marketplace remove 失败")
+
+    add = run(["codex", "plugin", "marketplace", "add", source])
+    if add.returncode != 0:
+        raise SystemExit(process_output(add) or "marketplace add 失败")
+    return "replaced"
+
+
+def add_or_upgrade_marketplace(source: str, marketplace_name: str) -> str:
     result = run(["codex", "plugin", "marketplace", "add", source])
     if result.returncode == 0:
-        return
+        return "added"
 
-    combined = "\n".join(part for part in [result.stdout, result.stderr] if part).lower()
-    if "already" in combined or "exists" in combined:
+    add_output = process_output(result)
+    if is_already_added_message(add_output):
         upgrade = run(["codex", "plugin", "marketplace", "upgrade", marketplace_name])
         if upgrade.returncode == 0:
-            return
-        raise SystemExit(upgrade.stderr.strip() or upgrade.stdout.strip() or "marketplace upgrade 失败")
+            return "upgraded"
 
-    raise SystemExit(result.stderr.strip() or result.stdout.strip() or "marketplace add 失败")
+        upgrade_output = process_output(upgrade)
+        if is_source_conflict_message(add_output) or is_not_git_marketplace_message(upgrade_output):
+            return replace_marketplace(source, marketplace_name)
+
+        raise SystemExit(upgrade_output or "marketplace upgrade 失败")
+
+    raise SystemExit(add_output or "marketplace add 失败")
 
 
 def main() -> int:
@@ -272,12 +340,13 @@ def main() -> int:
     config_path = home / CONFIG_RELATIVE_PATH
     config_text = read_text(config_path)
     config_text = upsert_top_level_key(config_text, "suppress_unstable_features_warning", "true")
-    config_text = upsert_key_in_section(config_text, "features", "codex_hooks", "true")
+    config_text = upsert_key_in_section(config_text, "features", "hooks", "true")
+    config_text = remove_key_in_section(config_text, "features", "codex_hooks")
     plugin_section = f'plugins."{plugin_name}@{marketplace_name}"'
     config_text = upsert_key_in_section(config_text, plugin_section, "enabled", "true")
     write_text(config_path, config_text)
 
-    add_or_upgrade_marketplace(marketplace_source, marketplace_name)
+    marketplace_action = add_or_upgrade_marketplace(marketplace_source, marketplace_name)
     helper_bin_dir, installed_commands = install_helper_scripts(source_repo, home)
     hooks_path = ensure_global_stop_hook(home)
     helper_bin_in_path = str(helper_bin_dir) in os.environ.get("PATH", "").split(":")
@@ -289,10 +358,11 @@ def main() -> int:
                 f"version: {plugin_version}",
                 f"marketplace: {marketplace_name}",
                 f"marketplace source: {marketplace_source}",
+                f"marketplace action: {marketplace_action}",
                 f"plugin: {plugin_name}@{marketplace_name}",
                 f"config: {config_path}",
                 "已确保 suppress_unstable_features_warning = true",
-                "已确保 features.codex_hooks = true",
+                "已确保 features.hooks = true",
                 "已确保插件启用。",
                 f"已确保全局 Stop hook 配置: {hooks_path}",
                 f"已安装本地辅助脚本到: {helper_bin_dir}",

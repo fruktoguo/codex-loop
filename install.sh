@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_URL="https://github.com/fruktoguo/codex-loop.git"
-MARKETPLACE_SOURCE="fruktoguo/codex-loop"
+MARKETPLACE_SOURCE="$REPO_URL"
 
 read_version() {
   local repo_path="$1"

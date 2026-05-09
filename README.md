@@ -26,7 +26,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/fruktoguo/codex-loop/main/in
 这条命令会一次性完成：
 
 - 检查 `codex` CLI 是否存在
-- 把 `codex_hooks = true` 写入 `~/.codex/config.toml`
+- 把 `hooks = true` 写入 `~/.codex/config.toml`
 - 把本仓库作为 marketplace 加到 Codex
 - 启用 `codex-loop@codex-loop`
 - 安装本地辅助脚本：`codex-loop-init`、`codex-loop-status`、`codex-loop-validate`
